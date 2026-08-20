@@ -8,6 +8,12 @@ import {
 } from "./engine";
 import { ROBOT_MAP, type EffectType, type Skill } from "./robots";
 import { defaultLoadout, MAX_LOADOUT } from "./skills";
+import {
+  aiGadgetLevel,
+  GADGET_MAP,
+  gadgetValue,
+  type GadgetKind,
+} from "./gadgets";
 
 export type Side = "player" | "enemy";
 
@@ -35,6 +41,13 @@ export interface Fighter {
   skillIds: string[];
   /** turnos restantes de postura de contra-ataque. */
   counter: number;
+  /** gadget equipado (efeito ja calculado para o nivel). */
+  gadget: { kind: GadgetKind; level: number; value: number } | null;
+}
+
+/** valor do efeito do gadget do lutador, 0 quando nao aplicavel. */
+export function gadgetBonus(f: Fighter, kind: GadgetKind): number {
+  return f.gadget && f.gadget.kind === kind ? f.gadget.value : 0;
 }
 
 /** Escolhe um kit de 4 habilidades para um robô controlado pela IA. */
@@ -90,6 +103,20 @@ export type BattleEvent =
 export function makeFighter(save: RobotSave, ai: boolean, uid: string): Fighter {
   const def = ROBOT_MAP[save.id];
   const st = totalStats(def, save, ai);
+  const gdef = GADGET_MAP[save.id];
+  const glevel = ai
+    ? aiGadgetLevel(save.id, save.level)
+    : Math.max(0, save.gadgetLevel ?? 0);
+  const gadget =
+    gdef && glevel > 0
+      ? { kind: gdef.kind, level: glevel, value: gadgetValue(gdef, glevel) }
+      : null;
+  const pct = (kind: GadgetKind) => (gadget && gadget.kind === kind ? gadget.value : 0);
+  const hp = Math.max(1, Math.round(st.hp * (1 + pct("vitality") / 100)));
+  const mp = Math.max(1, Math.round(st.mp * (1 + pct("reactor") / 100)));
+  const str = Math.max(1, Math.round(st.str * (1 + pct("power") / 100)));
+  const dfn = Math.max(1, Math.round(st.def * (1 + pct("guard") / 100)));
+  const agl = Math.max(1, Math.round(st.agl * (1 + pct("speed") / 100)));
   const kitIds = new Set(def.skills.map((s) => s.id));
   const chosen = [
     ...new Set((save.loadout ?? []).filter((id) => kitIds.has(id))),
@@ -107,17 +134,18 @@ export function makeFighter(save: RobotSave, ai: boolean, uid: string): Fighter 
     robotId: save.id,
     name: def.name,
     level: save.level,
-    hp: st.hp,
-    maxHp: st.hp,
-    mp: st.mp,
-    maxMp: st.mp,
-    str: st.str,
-    def: st.def,
-    agl: st.agl,
+    hp,
+    maxHp: hp,
+    mp,
+    maxMp: mp,
+    str,
+    def: dfn,
+    agl,
     effects: [],
     ai,
     skillIds,
     counter: 0,
+    gadget,
   };
 }
 
@@ -182,7 +210,7 @@ function effectiveStr(f: Fighter): number {
 }
 
 function damageReduction(f: Fighter): number {
-  return Math.min(80, sumEffect(f, "damage_reduction"));
+  return Math.min(80, sumEffect(f, "damage_reduction") + gadgetBonus(f, "aegis"));
 }
 
 function skillOf(f: Fighter, skillId: string): Skill {
@@ -279,7 +307,10 @@ function doAttack(ctx: Ctx, side: Side, skill: Skill) {
   push(ctx, { t: "clip", side, clip: "attack" });
 
   const blind = sumEffect(atk, "blind") / 100;
-  const evade = Math.min(0.85, evasionChance(atk.agl, vic.agl) + blind);
+  const evade = Math.min(
+    0.85,
+    evasionChance(atk.agl, vic.agl) + blind + gadgetBonus(vic, "phase") / 100,
+  );
   if (Math.random() < evade) {
     push(ctx, { t: "float", side: vicSide, text: "ERROU", tone: "miss" });
     msg(ctx, `${vic.name} desviou!`);
@@ -287,16 +318,30 @@ function doAttack(ctx: Ctx, side: Side, skill: Skill) {
     return;
   }
 
-  const crit = Math.random() < criticalChance(atk.agl, vic.agl);
+  const crit =
+    Math.random() < criticalChance(atk.agl, vic.agl) + gadgetBonus(atk, "crit") / 100;
   const dmg = computeDamage({
     attackerStr: effectiveStr(atk),
     attackerLevel: atk.level,
     victimDef: vic.def,
-    skillPower: skill.power,
+    skillPower: skill.power * (1 + gadgetBonus(atk, "amp") / 100),
     critical: crit,
     damageReduction: damageReduction(vic),
   });
   vic.hp = Math.max(0, vic.hp - dmg);
+
+  const leech = gadgetBonus(atk, "leech");
+  if (leech > 0 && atk.hp > 0) {
+    const gain = Math.max(1, Math.round((dmg * leech) / 100));
+    atk.hp = Math.min(atk.maxHp, atk.hp + gain);
+    push(ctx, { t: "float", side, text: `+${gain}`, tone: "heal" });
+  }
+  const thorns = gadgetBonus(vic, "thorns");
+  if (thorns > 0 && vic.hp > 0) {
+    const back = Math.max(1, Math.round((dmg * thorns) / 100));
+    atk.hp = Math.max(0, atk.hp - back);
+    push(ctx, { t: "float", side, text: `REPULSOR -${back}`, tone: "dmg" });
+  }
   push(ctx, { t: "vfx", side: vicSide, url: skill.vfx });
   push(ctx, { t: "clip", side: vicSide, clip: "damage" });
   push(ctx, {
@@ -446,6 +491,12 @@ function runAction(ctx: Ctx, side: Side, action: BattleAction) {
 function tickEffects(ctx: Ctx, side: Side) {
   const f = activeOf(ctx.b, side);
   if (!alive(f)) return;
+  const regen = gadgetBonus(f, "regen");
+  if (regen > 0 && f.hp < f.maxHp) {
+    const heal = Math.max(1, Math.round((f.maxHp * regen) / 100));
+    f.hp = Math.min(f.maxHp, f.hp + heal);
+    push(ctx, { t: "float", side, text: `+${heal}`, tone: "heal" });
+  }
   for (const e of f.effects) {
     if (e.type === "burn" || e.type === "poison") {
       const dmg = Math.max(1, Math.round((f.maxHp * e.power) / 100 / 2) + e.power);
