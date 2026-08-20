@@ -9,7 +9,7 @@ import { useGate } from "@/components/game/gate";
  * partículas, parallax em 3 camadas e câmera suave.
  * ------------------------------------------------------------------------- */
 
-const WORLD_W = 2600;
+const WORLD_W = 3100;
 const GROUND_Y = 620; // y do chão em coordenadas de mundo
 const SKY_TOP = -260; // topo do mundo
 
@@ -55,6 +55,7 @@ const BUILDINGS: Building[] = [
   { id: "modes", label: "ARENA", art: "/city/b_arena.png", x: 1300, w: 340, h: 405 },
   { id: "ranked", label: "TORRE RANQUEADA", art: "/city/b_ranked.png", x: 1830, w: 260, h: 429 },
   { id: "tournaments", label: "COLISEU", art: "/city/b_tourney.png", x: 2320, w: 360, h: 360 },
+  { id: "engineer", label: "OFICINA DO ENGENHEIRO", art: "/city/b_engineer.png", x: 2820, w: 300, h: 372 },
 ];
 
 type Platform = { x: number; y: number; w: number; range?: number; speed?: number };
@@ -69,6 +70,9 @@ const PLATFORMS: Platform[] = [
   { x: 2150, y: 290, w: 140 },
   { x: 2380, y: 440, w: 160 },
   { x: 380, y: 330, w: 120, range: 140, speed: 0.5 },
+  { x: 2620, y: 470, w: 150 },
+  { x: 2780, y: 340, w: 140, range: 110, speed: 0.7 },
+  { x: 2960, y: 430, w: 130 },
 ];
 
 type Core = { x: number; y: number; taken: number };
@@ -76,6 +80,8 @@ const CORES: Core[] = PLATFORMS.map((p) => ({ x: p.x + p.w / 2, y: p.y - 34, tak
   { x: 640, y: GROUND_Y - 40, taken: 0 },
   { x: 1420, y: GROUND_Y - 40, taken: 0 },
   { x: 2050, y: GROUND_Y - 40, taken: 0 },
+  { x: 2700, y: GROUND_Y - 40, taken: 0 },
+  { x: 2980, y: GROUND_Y - 40, taken: 0 },
 ]);
 
 type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; c: string };

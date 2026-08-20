@@ -3,6 +3,7 @@ import { GateProvider, useGate } from "@/components/game/gate";
 import { HubCity } from "@/components/game/hub-city";
 import { LoadingScreen } from "@/components/game/loading-screen";
 import { type Screen } from "@/screens/menu";
+import { EngineerScreen } from "@/screens/engineer";
 import { ModesScreen } from "@/screens/modes";
 import { RankedScreen } from "@/screens/ranked";
 import { RosterScreen } from "@/screens/roster";
@@ -85,6 +86,7 @@ function GameContent() {
             {screen === "modes" && <ModesScreen onBack={close} />}
             {screen === "ranked" && <RankedScreen onBack={close} />}
             {screen === "tournaments" && <TournamentsScreen onBack={close} />}
+            {screen === "engineer" && <EngineerScreen onBack={close} />}
           </div>
         </div>
       )}

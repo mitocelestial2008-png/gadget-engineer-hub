@@ -4,7 +4,7 @@ import { useGame } from "@/game/save";
 import { isPlacing, rankAt } from "@/game/ranked";
 import { StatBar } from "@/components/game/pixel";
 
-export type Screen = "menu" | "roster" | "shop" | "tournaments" | "modes" | "ranked";
+export type Screen = "menu" | "roster" | "shop" | "tournaments" | "modes" | "ranked" | "engineer";
 
 export function MenuScreen({ onGo }: { onGo: (s: Screen) => void }) {
   const g = useGame();
