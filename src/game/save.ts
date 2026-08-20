@@ -15,6 +15,12 @@ import {
   type RankedState,
 } from "./ranked";
 import { defaultLoadout, MAX_LOADOUT } from "./skills";
+import {
+  GADGET_MAP,
+  GADGET_MAX_LEVEL,
+  GADGET_ROBOT_LEVEL,
+  upgradeCost,
+} from "./gadgets";
 
 export interface GameState {
   version: number;
@@ -28,6 +34,8 @@ export interface GameState {
   battlesWon: number;
   /** 4 habilidades escolhidas por robô. */
   loadouts: Record<string, string[]>;
+  /** nivel do gadget de cada robo (0/ausente = nao comprado). */
+  gadgets: Record<string, number>;
   /** progresso do modo ranqueado. */
   ranked: RankedState;
   /** progresso dos modos de jogo. */
@@ -61,6 +69,7 @@ function initialState(): GameState {
     wonTournaments: [],
     battlesWon: 0,
     loadouts: {},
+    gadgets: {},
     ranked: initialRanked(),
     modes: {
       babelFloor: 1,
@@ -86,6 +95,7 @@ function read(): GameState {
       ...parsed,
       version: VERSION,
       loadouts: parsed.loadouts ?? {},
+      gadgets: parsed.gadgets ?? {},
       // migração v1 -> v2: saves antigos não tinham modo ranqueado
       ranked: normalizeRanked(parsed.ranked),
       modes: { ...base.modes, ...(parsed.modes ?? {}) },
@@ -204,7 +214,7 @@ export function teamSaves(s: GameState): RobotSave[] {
   return s.team
     .map((id) => s.robots.find((r) => r.id === id))
     .filter((r): r is RobotSave => Boolean(r))
-    .map((r) => ({ ...r, loadout: loadoutOf(s, r.id) }));
+    .map((r) => ({ ...r, loadout: loadoutOf(s, r.id), gadgetLevel: s.gadgets[r.id] ?? 0 }));
 }
 
 // ------------------------------------------------------------- loadouts
@@ -271,6 +281,43 @@ export function claimRankedMission(id: string): number {
 /** Encerra a temporada atual e inicia a próxima com reset suave. */
 export function startNewSeason() {
   setState((s) => ({ ...s, ranked: newSeason(s.ranked) }));
+}
+
+// ------------------------------------------------------------- gadgets
+export function gadgetLevelOf(s: GameState, robotId: string): number {
+  return s.gadgets[robotId] ?? 0;
+}
+
+/** Compra o gadget do robo (nivel 1). Retorna false se nao for possivel. */
+export function buyGadget(robotId: string): boolean {
+  const def = GADGET_MAP[robotId];
+  if (!def) return false;
+  const robot = state.robots.find((r) => r.id === robotId);
+  if (!robot || robot.level < GADGET_ROBOT_LEVEL) return false;
+  if ((state.gadgets[robotId] ?? 0) > 0) return false;
+  if (state.gold < def.price) return false;
+  setState((s) => ({
+    ...s,
+    gold: s.gold - def.price,
+    gadgets: { ...s.gadgets, [robotId]: 1 },
+  }));
+  return true;
+}
+
+/** Sobe um nivel do gadget. Retorna false se nao for possivel. */
+export function upgradeGadget(robotId: string): boolean {
+  const def = GADGET_MAP[robotId];
+  if (!def) return false;
+  const cur = state.gadgets[robotId] ?? 0;
+  if (cur <= 0 || cur >= GADGET_MAX_LEVEL) return false;
+  const cost = upgradeCost(def, cur);
+  if (state.gold < cost) return false;
+  setState((s) => ({
+    ...s,
+    gold: s.gold - cost,
+    gadgets: { ...s.gadgets, [robotId]: cur + 1 },
+  }));
+  return true;
 }
 
 export function setModeProgress(patch: Partial<GameState["modes"]>) {
