@@ -38,6 +38,10 @@ export interface GameState {
   gadgets: Record<string, number>;
   /** progresso do modo ranqueado. */
   ranked: RankedState;
+  /** cartas de suporte adquiridas (id -> quantidade). */
+  cards: Record<string, number>;
+  /** carta de suporte equipada na batalha. */
+  activeCard: string | null;
   /** progresso dos modos de jogo. */
   modes: {
     babelFloor: number;
