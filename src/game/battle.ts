@@ -7,6 +7,7 @@ import {
   type RobotSave,
 } from "./engine";
 import { ROBOT_MAP, type EffectType, type Skill } from "./robots";
+import { CARD_MAP, cardEffectText, type SupportCard } from "./cards";
 import { defaultLoadout, MAX_LOADOUT } from "./skills";
 import {
   aiGadgetLevel,
@@ -84,6 +85,8 @@ export interface Battle {
   player: BattleSide;
   enemy: BattleSide;
   log: string[];
+  /** carta de suporte equipada pelo jogador. */
+  cardId: string | null;
 }
 
 export type BattleAction =
@@ -97,6 +100,7 @@ export type BattleEvent =
   | { t: "vfx"; side: Side; url: string }
   | { t: "float"; side: Side; text: string; tone: "dmg" | "crit" | "heal" | "miss" | "info" }
   | { t: "sync"; battle: Battle }
+  | { t: "card"; side: Side; cardId: string; text: string }
   | { t: "faint"; side: Side }
   | { t: "end"; result: "win" | "lose" };
 
@@ -162,6 +166,7 @@ export function createBattle(args: {
   playerTeam: RobotSave[];
   enemyTeam: RobotSave[];
   items: Record<string, number>;
+  cardId?: string | null;
 }): Battle {
   return {
     arena: args.arena,
@@ -179,6 +184,7 @@ export function createBattle(args: {
       items: {},
     },
     log: [],
+    cardId: args.cardId && CARD_MAP[args.cardId] ? args.cardId : null,
   };
 }
 
@@ -556,6 +562,82 @@ function checkEnd(ctx: Ctx) {
   sync(ctx);
 }
 
+/** Aplica o efeito da carta de suporte do jogador quando a rodada bate o ciclo. */
+function tickCard(ctx: Ctx) {
+  const id = ctx.b.cardId;
+  if (!id) return;
+  const card: SupportCard | undefined = CARD_MAP[id];
+  if (!card) return;
+  if (ctx.b.turn % card.every !== 0) return;
+  const f = activeOf(ctx.b, "player");
+  if (!alive(f)) return;
+  const foe = activeOf(ctx.b, "enemy");
+
+  push(ctx, { t: "card", side: "player", cardId: card.id, text: cardEffectText(card) });
+  msg(ctx, `${card.name} entra em acao!`);
+
+  switch (card.kind) {
+    case "heal": {
+      const heal = Math.max(1, Math.round((f.maxHp * card.power) / 100));
+      f.hp = Math.min(f.maxHp, f.hp + heal);
+      push(ctx, { t: "vfx", side: "player", url: "/vfx/heal.png" });
+      push(ctx, { t: "float", side: "player", text: `+${heal}`, tone: "heal" });
+      break;
+    }
+    case "regen": {
+      applyEffect(f, "hp_regen", card.power, card.turns);
+      push(ctx, { t: "float", side: "player", text: "REPARO", tone: "heal" });
+      break;
+    }
+    case "amp":
+    case "rush": {
+      applyEffect(f, "adrenalin", card.power, card.turns);
+      push(ctx, { t: "float", side: "player", text: `+${card.power}% DANO`, tone: "info" });
+      break;
+    }
+    case "mp": {
+      const gain = Math.max(1, Math.round((f.maxMp * card.power) / 100));
+      f.mp = Math.min(f.maxMp, f.mp + gain);
+      push(ctx, { t: "float", side: "player", text: `+${gain} MP`, tone: "info" });
+      break;
+    }
+    case "guard":
+    case "shield": {
+      applyEffect(f, "damage_reduction", card.power, card.turns);
+      push(ctx, { t: "vfx", side: "player", url: "/vfx/shield.png" });
+      push(ctx, { t: "float", side: "player", text: `-${card.power}% DANO`, tone: "info" });
+      break;
+    }
+    case "burst": {
+      if (alive(foe)) {
+        const dmg = Math.max(1, Math.round((foe.maxHp * card.power) / 100));
+        foe.hp = Math.max(0, foe.hp - dmg);
+        push(ctx, { t: "vfx", side: "enemy", url: "/vfx/explosion.png" });
+        push(ctx, { t: "float", side: "enemy", text: `-${dmg}`, tone: "crit" });
+      }
+      break;
+    }
+    case "poison": {
+      if (alive(foe)) {
+        applyEffect(foe, "poison", card.power, card.turns);
+        push(ctx, { t: "float", side: "enemy", text: "ENVENENADO", tone: "info" });
+      }
+      break;
+    }
+    case "purify": {
+      f.effects = f.effects.filter(
+        (e) => e.type === "adrenalin" || e.type === "damage_reduction" || e.type === "hp_regen",
+      );
+      const heal = Math.max(1, Math.round((f.maxHp * card.power) / 100));
+      f.hp = Math.min(f.maxHp, f.hp + heal);
+      push(ctx, { t: "vfx", side: "player", url: "/vfx/heal.png" });
+      push(ctx, { t: "float", side: "player", text: "PURIFICADO", tone: "heal" });
+      break;
+    }
+  }
+  sync(ctx);
+}
+
 function priority(action: BattleAction): number {
   if (action.kind === "item") return 3;
   if (action.kind === "swap") return 2;
@@ -587,6 +669,12 @@ export function resolveTurn(
     handleFaints(ctx);
     checkEnd(ctx);
     if (ctx.b.result) break;
+  }
+
+  if (!ctx.b.result) {
+    tickCard(ctx);
+    handleFaints(ctx);
+    checkEnd(ctx);
   }
 
   if (!ctx.b.result) {

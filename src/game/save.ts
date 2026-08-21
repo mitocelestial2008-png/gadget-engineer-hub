@@ -16,6 +16,13 @@ import {
 } from "./ranked";
 import { defaultLoadout, MAX_LOADOUT } from "./skills";
 import {
+  CARD_MAP,
+  DUPLICATE_GOLD,
+  GACHA_PRICE,
+  rollCard,
+  type SupportCard,
+} from "./cards";
+import {
   GADGET_MAP,
   GADGET_MAX_LEVEL,
   GADGET_ROBOT_LEVEL,
@@ -38,6 +45,10 @@ export interface GameState {
   gadgets: Record<string, number>;
   /** progresso do modo ranqueado. */
   ranked: RankedState;
+  /** cartas de suporte adquiridas (id -> quantidade). */
+  cards: Record<string, number>;
+  /** carta de suporte equipada na batalha. */
+  activeCard: string | null;
   /** progresso dos modos de jogo. */
   modes: {
     babelFloor: number;
@@ -71,6 +82,8 @@ function initialState(): GameState {
     loadouts: {},
     gadgets: {},
     ranked: initialRanked(),
+    cards: {},
+    activeCard: null,
     modes: {
       babelFloor: 1,
       babelBest: 0,
@@ -98,6 +111,8 @@ function read(): GameState {
       gadgets: parsed.gadgets ?? {},
       // migração v1 -> v2: saves antigos não tinham modo ranqueado
       ranked: normalizeRanked(parsed.ranked),
+      cards: parsed.cards ?? {},
+      activeCard: parsed.activeCard ?? null,
       modes: { ...base.modes, ...(parsed.modes ?? {}) },
     };
   } catch {
@@ -322,4 +337,36 @@ export function upgradeGadget(robotId: string): boolean {
 
 export function setModeProgress(patch: Partial<GameState["modes"]>) {
   setState((st) => ({ ...st, modes: { ...st.modes, ...patch } }));
+}
+
+// ------------------------------------------------------------- cartas
+export interface GachaResult {
+  card: SupportCard;
+  duplicate: boolean;
+  gold: number;
+}
+
+/** Faz uma invocacao no gacha de cartas. Retorna null se faltar ouro. */
+export function pullCard(): GachaResult | null {
+  if (state.gold < GACHA_PRICE) return null;
+  const card = rollCard();
+  const duplicate = (state.cards[card.id] ?? 0) > 0;
+  const refund = duplicate ? DUPLICATE_GOLD : 0;
+  setState((s) => ({
+    ...s,
+    gold: s.gold - GACHA_PRICE + refund,
+    cards: { ...s.cards, [card.id]: (s.cards[card.id] ?? 0) + 1 },
+    activeCard: s.activeCard ?? card.id,
+  }));
+  return { card, duplicate, gold: refund };
+}
+
+export function equipCard(id: string | null) {
+  if (id && !CARD_MAP[id]) return;
+  if (id && (state.cards[id] ?? 0) <= 0) return;
+  setState((s) => ({ ...s, activeCard: s.activeCard === id ? null : id }));
+}
+
+export function ownsCard(s: GameState, id: string): boolean {
+  return (s.cards[id] ?? 0) > 0;
 }
