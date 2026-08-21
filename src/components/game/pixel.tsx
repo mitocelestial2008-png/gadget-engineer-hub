@@ -323,3 +323,81 @@ export function ArenaBackdrop({
     </div>
   );
 }
+
+/** Animador de spritesheet em grade (linhas x colunas). Usado nas cartas de suporte. */
+export function SheetSprite({
+  url,
+  cols,
+  rows,
+  frames,
+  size = 96,
+  fps = 10,
+  loop = true,
+  onDone,
+  className,
+  style,
+}: {
+  url: string;
+  cols: number;
+  rows: number;
+  frames: number;
+  size?: number;
+  fps?: number;
+  loop?: boolean;
+  onDone?: () => void;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const [i, setI] = useState(0);
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+
+  useEffect(() => {
+    setI(0);
+    const id = window.setInterval(() => {
+      setI((prev) => {
+        const next = prev + 1;
+        if (next >= frames) {
+          if (loop) return 0;
+          window.clearInterval(id);
+          doneRef.current?.();
+          return prev;
+        }
+        return next;
+      });
+    }, 1000 / fps);
+    return () => window.clearInterval(id);
+  }, [url, cols, rows, frames, fps, loop]);
+
+  const cx = i % cols;
+  const cy = Math.floor(i / cols);
+
+  return (
+    <div
+      className={className}
+      style={{
+        width: size,
+        height: size,
+        overflow: "hidden",
+        position: "relative",
+        ...style,
+      }}
+    >
+      <img
+        src={url}
+        alt=""
+        draggable={false}
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          width: size * cols,
+          height: size * rows,
+          maxWidth: "none",
+          transform: `translate(${-cx * size}px, ${-cy * size}px)`,
+          imageRendering: "pixelated",
+        }}
+      />
+    </div>
+  );
+}
