@@ -23,6 +23,9 @@ import {
 import { ITEM_MAP } from "@/game/config";
 import type { RobotSave } from "@/game/engine";
 import { faceUrl, ROBOT_MAP } from "@/game/robots";
+import { CARD_MAP, CARD_SHEET, cardArt } from "@/game/cards";
+import { getState } from "@/game/save";
+import { SheetSprite } from "@/components/game/pixel";
 
 type Clip = "idle" | "attack" | "damage" | "guard" | "enter";
 type Menu = "root" | "skills" | "items" | "swap";
@@ -68,7 +71,13 @@ export function BattleScreen({
   startState?: Record<string, { hp: number; mp: number }>;
 }) {
   const [battle, setBattle] = useState<Battle>(() => {
-    const b = createBattle({ arena, playerTeam, enemyTeam, items });
+    const b = createBattle({
+      arena,
+      playerTeam,
+      enemyTeam,
+      items,
+      cardId: getState().activeCard,
+    });
     if (startState) {
       for (const f of b.player.fighters) {
         const st = startState[f.robotId];
@@ -88,6 +97,7 @@ export function BattleScreen({
   const [message, setMessage] = useState(`${label} — LUTAR!`);
   const [menu, setMenu] = useState<Menu>("root");
   const [shakeSide, setShakeSide] = useState<Side | null>(null);
+  const [cardFx, setCardFx] = useState<{ id: string; text: string; key: number } | null>(null);
   const keyRef = useRef(0);
 
   const busy = queue.length > 0;
@@ -135,6 +145,15 @@ export function BattleScreen({
     } else if (ev.t === "sync") {
       setBattle(ev.battle);
       delay = 60;
+    } else if (ev.t === "card") {
+      keyRef.current += 1;
+      const key = keyRef.current;
+      setCardFx({ id: ev.cardId, text: ev.text, key });
+      window.setTimeout(
+        () => setCardFx((c) => (c && c.key === key ? null : c)),
+        2600,
+      );
+      delay = 900;
     } else if (ev.t === "faint") {
       delay = 620;
     } else if (ev.t === "end") {
@@ -173,6 +192,10 @@ export function BattleScreen({
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
       <ArenaBackdrop arena={arena} round={round} />
+
+      {cardFx && CARD_MAP[cardFx.id] && (
+        <CardProc id={cardFx.id} text={cardFx.text} keyId={cardFx.key} />
+      )}
 
       {/* HUD superior */}
       <div style={{ position: "absolute", top: 8, left: 8, right: 8, display: "flex", gap: 8 }}>
@@ -542,6 +565,54 @@ function FighterHud({
             />
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Aviso animado no canto aliado quando a carta de suporte dispara. */
+function CardProc({ id, text, keyId }: { id: string; text: string; keyId: number }) {
+  const card = CARD_MAP[id];
+  return (
+    <div
+      key={keyId}
+      className="animate-fade-in"
+      style={{
+        position: "absolute",
+        left: 6,
+        top: "38%",
+        zIndex: 40,
+        width: 132,
+        display: "flex",
+        gap: 6,
+        alignItems: "center",
+        padding: 5,
+        background: "rgba(4,10,20,0.92)",
+        border: "2px solid var(--mk-accent)",
+        boxShadow: "0 0 18px rgba(53,226,240,0.45)",
+      }}
+    >
+      <div
+        style={{
+          border: "2px solid rgba(53,226,240,0.6)",
+          background: "rgba(10,20,36,0.9)",
+          flexShrink: 0,
+        }}
+      >
+        <SheetSprite
+          url={cardArt(card.id)}
+          cols={CARD_SHEET.cols}
+          rows={CARD_SHEET.rows}
+          frames={CARD_SHEET.frames}
+          size={46}
+          fps={10}
+        />
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div className="mk-title" style={{ fontSize: 6, color: "var(--mk-accent2)" }}>
+          {card.name}
+        </div>
+        <div style={{ fontSize: 9, color: "var(--mk-fg)", lineHeight: 1.25 }}>{text}</div>
       </div>
     </div>
   );
